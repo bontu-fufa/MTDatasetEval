@@ -1,10 +1,14 @@
 import os
+
+# Disable W&B logging
+os.environ["WANDB_DISABLED"] = "true"
+
 import math
 import logging
 from datasets import load_dataset
 from transformers import (
     AutoModelForMaskedLM,
-    AutoTokenizer,
+    PreTrainedTokenizerFast,
     Trainer,
     TrainingArguments,
 )
@@ -32,7 +36,7 @@ def load_and_tokenize_dataset(language, tokenizer, text_file, max_length=512, sp
     Load and tokenize datasets for MLM training, with a train-test split.
     Args:
         language (str): Language being processed (e.g., am, om, ti).
-        tokenizer (AutoTokenizer): Pre-trained tokenizer for the model.
+        tokenizer (PreTrainedTokenizerFast): Pre-trained tokenizer for the model.
         text_file (str): Path to the training text file.
         max_length (int): Maximum sequence length for tokenized inputs.
         split_ratio (float): Ratio of data to use for training (default: 0.8 for 80% train, 20% test).
@@ -45,7 +49,7 @@ def load_and_tokenize_dataset(language, tokenizer, text_file, max_length=512, sp
     dataset = load_dataset("text", data_files={"data": text_file})["data"]
 
     # Perform train-test split
-    logging.info(f"Splitting dataset into train ({int(split_ratio*100)}%) and test ({int((1-split_ratio)*100)}%)...")
+    logging.info(f"Splitting dataset into train ({int(split_ratio * 100)}%) and test ({int((1 - split_ratio) * 100)}%)...")
     dataset_split = dataset.train_test_split(test_size=1 - split_ratio)
 
     def tokenize_function(examples):
@@ -78,7 +82,7 @@ def compute_metrics(eval_pred):
     Returns:
         dict: Dictionary containing the perplexity metric.
     """
-    loss = eval_pred.metrics["eval_loss"]  # The Trainer automatically calculates eval_loss
+    loss = eval_pred.metrics["eval_loss"]
     perplexity = math.exp(loss) if loss < float("inf") else float("inf")
     return {"perplexity": perplexity}
 
@@ -91,7 +95,7 @@ def train_mlm(language, dataset, train_dataset, test_dataset, tokenizer, model_n
         dataset (str): Name of the dataset (e.g., hornMT, nllb).
         train_dataset (Dataset): Tokenized training dataset.
         test_dataset (Dataset): Tokenized validation dataset (optional).
-        tokenizer (AutoTokenizer): Pre-trained tokenizer for the model.
+        tokenizer (PreTrainedTokenizerFast): Pre-trained tokenizer for the model.
         model_name (str): Name of the pre-trained model to use (e.g., mBERT, XLM-RoBERTa).
         output_dir (str): Directory to save the trained model.
         args (Namespace): Training arguments.
@@ -108,8 +112,10 @@ def train_mlm(language, dataset, train_dataset, test_dataset, tokenizer, model_n
         learning_rate=args.learning_rate,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=2,  
         num_train_epochs=args.epochs,
         weight_decay=0.01,
+        fp16=True,  # Enable mixed precision
         save_total_limit=2,
         logging_steps=args.logging_steps,
         logging_dir=os.path.join(dataset_language_output_dir, "logs"),
@@ -122,7 +128,7 @@ def train_mlm(language, dataset, train_dataset, test_dataset, tokenizer, model_n
         train_dataset=train_dataset,
         eval_dataset=test_dataset,
         tokenizer=tokenizer,
-        compute_metrics=compute_metrics,  # Compute perplexity
+        compute_metrics=compute_metrics,
     )
 
     # Train the model
@@ -141,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument("--language", type=str, required=True, help="Language code (e.g., am, om, ti).")
     parser.add_argument("--dataset", type=str, required=True, help="Dataset name (e.g., hornMT, nllb).")
     parser.add_argument("--train_file", type=str, required=True, help="Path to the training text file.")
-    parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to the trained tokenizer.")
+    parser.add_argument("--tokenizer_path", type=str, required=True, help="Path to the trained tokenizer directory.")
     parser.add_argument("--output_dir", type=str, default="./output/mlm", help="Directory to save trained models.")
     parser.add_argument("--model_name", type=str, required=True, help="Name of the pre-trained model (e.g., bert-base-multilingual-cased, xlm-roberta-base).")
     parser.add_argument("--epochs", type=int, default=3, help="Number of training epochs.")
@@ -157,14 +163,14 @@ if __name__ == "__main__":
 
     # Load the tokenizer
     logging.info(f"Loading tokenizer from: {args.tokenizer_path}")
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_path)
+    tokenizer = PreTrainedTokenizerFast.from_pretrained(args.tokenizer_path)
 
     # Load and tokenize the dataset
     train_dataset, test_dataset = load_and_tokenize_dataset(
         args.language, tokenizer, args.train_file, max_length=512, split_ratio=args.split_ratio
     )
 
-    # Train the MLM with dataset-aware folders
+    # Train the MLM
     train_mlm(
         args.language,
         args.dataset,

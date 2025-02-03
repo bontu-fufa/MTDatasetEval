@@ -1,6 +1,7 @@
 import os
 import logging
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers
+from transformers import PreTrainedTokenizerFast
 import argparse
 
 def setup_logging(log_file=None):
@@ -21,7 +22,7 @@ def setup_logging(log_file=None):
 
 def train_custom_tokenizer(language, input_file, output_dir, vocab_size=30000):
     """
-    Train a custom tokenizer for a specific language.
+    Train a custom tokenizer for a specific language and save it in HuggingFace-compatible format.
 
     Args:
         language (str): Language code (e.g., "am", "om", "ti").
@@ -54,8 +55,17 @@ def train_custom_tokenizer(language, input_file, output_dir, vocab_size=30000):
     # Train the tokenizer
     tokenizer.train_from_iterator(lines, trainer)
 
-    # Save the tokenizer to the output directory
-    tokenizer.save(os.path.join(language_output_dir, "custom_tokenizer.json"))
+    # Save the tokenizer to the output directory in HuggingFace-compatible format
+    logging.info(f"Saving tokenizer in HuggingFace-compatible format at: {language_output_dir}")
+    hf_tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer,
+        unk_token="[UNK]",
+        pad_token="[PAD]",
+        cls_token="[CLS]",
+        sep_token="[SEP]",
+        mask_token="[MASK]"
+    )
+    hf_tokenizer.save_pretrained(language_output_dir)
     logging.info(f"Tokenizer saved for {language} at: {language_output_dir}")
 
 if __name__ == "__main__":
